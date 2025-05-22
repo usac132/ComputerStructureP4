@@ -90,13 +90,19 @@ module dcache_core
 // For Project 4
 // (1) REQUIRES MODIFICATION: STARTS HERE
 //===============================================================
+// params for error solving
+
 
 // Number of ways
-localparam DCACHE_NUM_WAYS           = 2;                   //not actually used; dead parameter
+localparam DCACHE_NUM_WAYS           = 4;                   //not actually used; dead parameter
 
 // Number of cache lines
 localparam DCACHE_NUM_LINES          = 256;
-localparam DCACHE_LINE_ADDR_W        = 8;
+localparam DCACHE_NUM_SETS           = DCACHE_NUM_LINES / DCACHE_NUM_WAYS;   // 필요 없나? 혹시 모르니 일단 만들어 둠
+localparam DCACHE_LINE_ADDR_W        =  (DCACHE_NUM_WAYS == 1) ? 8 : 
+                                        (DCACHE_NUM_WAYS == 2) ? 7 :
+                                        (DCACHE_NUM_WAYS == 4) ? 6 : -1;    // DCACHE_NUM_WAYS 값에 따라 idx bit수 결정
+
 
 // Offset fields (Block + Word)
 // or line size (e.g. 32-bytes)
@@ -106,18 +112,23 @@ localparam DCACHE_LINE_SIZE          = 32;
 localparam DCACHE_LINE_WORDS         = 8;               
 //============================================================================================
 
+localparam IDX_W = DCACHE_LINE_ADDR_W;
+localparam OFST_W = DCACHE_LINE_SIZE_W;
+localparam TAG_W = 32-IDX_W-OFST_W;
+localparam TAG_DATA_W = TAG_W + 2;
+
 // Index fields
 //============================================================================================
 localparam DCACHE_TAG_REQ_LINE_L     = 5;  // DCACHE_LINE_SIZE_W
-localparam DCACHE_TAG_REQ_LINE_H     = 12; // DCACHE_LINE_ADDR_W+DCACHE_LINE_SIZE_W-1
-localparam DCACHE_TAG_REQ_LINE_W     = 8;  // DCACHE_LINE_ADDR_W
+localparam DCACHE_TAG_REQ_LINE_H     = DCACHE_LINE_ADDR_W + DCACHE_LINE_SIZE_W -1; // DCACHE_LINE_ADDR_W+DCACHE_LINE_SIZE_W-1
+localparam DCACHE_TAG_REQ_LINE_W     = DCACHE_LINE_ADDR_W;  // DCACHE_LINE_ADDR_W
 `define DCACHE_TAG_REQ_RNG          DCACHE_TAG_REQ_LINE_H:DCACHE_TAG_REQ_LINE_L
 //============================================================================================
 
 // Tag fields
 //============================================================================================
-`define CACHE_TAG_ADDR_RNG          18:0
-localparam CACHE_TAG_ADDR_BITS       = 19;
+`define CACHE_TAG_ADDR_RNG_D          26-DCACHE_LINE_ADDR_W:0
+localparam CACHE_TAG_ADDR_BITS       = 27-DCACHE_LINE_ADDR_W;
 localparam CACHE_TAG_DIRTY_BIT       = CACHE_TAG_ADDR_BITS + 0;
 localparam CACHE_TAG_VALID_BIT       = CACHE_TAG_ADDR_BITS + 1;
 localparam CACHE_TAG_DATA_W          = CACHE_TAG_ADDR_BITS + 2;
@@ -126,7 +137,7 @@ localparam CACHE_TAG_DATA_W          = CACHE_TAG_ADDR_BITS + 2;
 localparam DCACHE_TAG_CMP_ADDR_L     = DCACHE_TAG_REQ_LINE_H + 1;
 localparam DCACHE_TAG_CMP_ADDR_H     = 32-1;
 localparam DCACHE_TAG_CMP_ADDR_W     = DCACHE_TAG_CMP_ADDR_H - DCACHE_TAG_CMP_ADDR_L + 1;
-`define   DCACHE_TAG_CMP_ADDR_RNG   31:13
+`define   DCACHE_TAG_CMP_ADDR_RNG   31:DCACHE_TAG_CMP_ADDR_L
 //============================================================================================
 
 // (1) REQUIRES MODIFICATION: ENDS HERE
@@ -253,7 +264,31 @@ assign mem_resp_tag_o = mem_tag_m_q;
 // For Project 4
 // (2) REQUIRES MODIFICATION: STARTS HERE
 //===============================================================
-reg [0:0]  replace_way_q;
+
+// DCACHE_NUM_WAYS에 log2를 취한 param
+localparam log2way = (DCACHE_NUM_WAYS == 1) ? 1 :
+                     (DCACHE_NUM_WAYS == 2) ? 1 :
+                     (DCACHE_NUM_WAYS == 4) ? 2 : -1;
+reg [log2way-1:0] replace_way_q;
+
+wire [31:0] data_out_m [0:DCACHE_NUM_WAYS-1];
+/*
+// PLRU어렵...일단 Round Robin으로 구현
+generate
+    
+    if (DCACHE_NUM_WAYS == 1) begin end
+
+    else begin
+        always @(posedge clk_i or posedge rst_i) begin
+            if (rst_i)
+                replace_way_q <= '0; 
+            else if ((state_q == STATE_LOOKUP) && !tag_hit_any_m_w)
+                replace_way_q <= replace_way_q + 1'b1;
+        end
+    end
+
+endgenerate
+*/
 // (2) REQUIRES MODIFICATION: ENDS HERE
 //===============================================================
 
@@ -320,28 +355,28 @@ begin
     begin
         tag_data_in_m_r[CACHE_TAG_VALID_BIT] = 1'b1;
         tag_data_in_m_r[CACHE_TAG_DIRTY_BIT] = 1'b0;
-        tag_data_in_m_r[`CACHE_TAG_ADDR_RNG] = mem_addr_m_q[`DCACHE_TAG_CMP_ADDR_RNG];
+        tag_data_in_m_r[`CACHE_TAG_ADDR_RNG_D] = mem_addr_m_q[`DCACHE_TAG_CMP_ADDR_RNG];
     end
     // Invalidate - mark entry (if matching line) not valid (even if dirty...)
     else if (state_q == STATE_INVALIDATE)
     begin
         tag_data_in_m_r[CACHE_TAG_VALID_BIT] = 1'b0;
         tag_data_in_m_r[CACHE_TAG_DIRTY_BIT] = 1'b0;
-        tag_data_in_m_r[`CACHE_TAG_ADDR_RNG] = mem_addr_m_q[`DCACHE_TAG_CMP_ADDR_RNG];
+        tag_data_in_m_r[`CACHE_TAG_ADDR_RNG_D] = mem_addr_m_q[`DCACHE_TAG_CMP_ADDR_RNG];
     end
     // Evict completion
     else if (state_q == STATE_EVICT_WAIT)
     begin
         tag_data_in_m_r[CACHE_TAG_VALID_BIT] = 1'b1;
         tag_data_in_m_r[CACHE_TAG_DIRTY_BIT] = 1'b0;
-        tag_data_in_m_r[`CACHE_TAG_ADDR_RNG] = mem_addr_m_q[`DCACHE_TAG_CMP_ADDR_RNG];
+        tag_data_in_m_r[`CACHE_TAG_ADDR_RNG_D] = mem_addr_m_q[`DCACHE_TAG_CMP_ADDR_RNG];
     end
     // Write - mark entry as dirty
     else if (state_q == STATE_WRITE || (state_q == STATE_LOOKUP && (|mem_wr_m_q)))
     begin
         tag_data_in_m_r[CACHE_TAG_VALID_BIT] = 1'b1;
         tag_data_in_m_r[CACHE_TAG_DIRTY_BIT] = 1'b1;
-        tag_data_in_m_r[`CACHE_TAG_ADDR_RNG] = mem_addr_m_q[`DCACHE_TAG_CMP_ADDR_RNG];
+        tag_data_in_m_r[`CACHE_TAG_ADDR_RNG_D] = mem_addr_m_q[`DCACHE_TAG_CMP_ADDR_RNG];
     end
 end
 
@@ -349,7 +384,76 @@ end
 // For Project 4
 // (3) REQUIRES MODIFICATION: STARTS HERE
 //===============================================================
+reg [DCACHE_NUM_WAYS-1:0] tag_write_m;
+wire [DCACHE_NUM_WAYS-1:0] tag_hit_m;
+wire [DCACHE_NUM_WAYS-1:0] tag_valid_m;
+wire [DCACHE_NUM_WAYS-1:0] tag_dirty_m;
+wire [CACHE_TAG_DATA_W-1:0] tag_out_m [0:DCACHE_NUM_WAYS-1];
 
+always @ *
+begin
+    tag_write_m = '0;
+
+    // Cache flush (reset)
+    if (state_q == STATE_RESET)
+        tag_write_m = {DCACHE_NUM_WAYS{1'b1}};
+    // Cache flush
+    else if (state_q == STATE_FLUSH)
+        tag_write_m = !tag_dirty_any_m_w ? {DCACHE_NUM_WAYS{1'b1}} : '0;
+    // Write - hit, mark as dirty
+    else if (state_q == STATE_LOOKUP && (|mem_wr_m_q))
+        tag_write_m = tag_hit_m;
+    /*
+    // Write - write after refill
+    else if (state_q == STATE_WRITE)
+        tag_write_m_ = (replace_way_q == 0);
+    // Write - mark entry as dirty
+    else if (state_q == STATE_EVICT_WAIT && pmem_ack_w)
+        tag_write_m = (replace_way_q == 0);
+    */
+    // Line refill
+    else if (state_q == STATE_REFILL && pmem_ack_w && pmem_last_w)
+        tag_write_m[replace_way_q] = 1'b1;
+    // Invalidate - line matches address - invalidate
+    else if (state_q == STATE_INVALIDATE)
+        tag_write_m = tag_hit_m;
+end
+
+// DCACHE_NUM_WAYS의 수에 따라 
+genvar i;
+generate
+    for (i=0; i<DCACHE_NUM_WAYS; i=i+1) begin
+        dcache_core_tag_ram 
+        u_tag0
+        (
+        .clk0_i(clk_i),
+        .rst0_i(rst_i),
+        .clk1_i(clk_i),
+        .rst1_i(rst_i),
+
+        // Read
+        .addr0_i({2'b00, tag_addr_x_r}),
+        .data0_o(tag_out_m[i][20:0]),
+
+        // Write
+        .addr1_i({2'b00, tag_addr_m_r}),
+        .data1_i(tag_data_in_m_r[20:0]),
+        .wr1_i(tag_write_m[i])
+        );
+
+        assign tag_valid_m[i] = tag_out_m[i][CACHE_TAG_VALID_BIT];
+        assign tag_dirty_m[i] = tag_out_m[i][CACHE_TAG_DIRTY_BIT];
+        assign tag_hit_m[i] = tag_valid_m[i] && (tag_out_m[i][`CACHE_TAG_ADDR_RNG_D] == req_addr_tag_cmp_m_w);
+    end
+
+endgenerate
+
+assign tag_hit_any_m_w = |tag_hit_m;
+assign tag_hit_and_dirty_m_w = |(tag_hit_m & tag_dirty_m);
+assign tag_dirty_any_m_w = |(tag_valid_m & tag_dirty_m);
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////
+/*
 // Tag RAM write enable (way 0)
 reg tag0_write_m_r;
 always @ *
@@ -401,7 +505,7 @@ u_tag0
 
 wire                           tag0_valid_m_w     = tag0_data_out_m_w[CACHE_TAG_VALID_BIT];
 wire                           tag0_dirty_m_w     = tag0_data_out_m_w[CACHE_TAG_DIRTY_BIT];
-wire [CACHE_TAG_ADDR_BITS-1:0] tag0_addr_bits_m_w = tag0_data_out_m_w[`CACHE_TAG_ADDR_RNG];
+wire [CACHE_TAG_ADDR_BITS-1:0] tag0_addr_bits_m_w = tag0_data_out_m_w[`CACHE_TAG_ADDR_RNG_D];
 
 // Tag hit?
 assign                           tag0_hit_m_w = tag0_valid_m_w ? (tag0_addr_bits_m_w == req_addr_tag_cmp_m_w) : 1'b0;
@@ -457,7 +561,7 @@ u_tag1
 
 wire                           tag1_valid_m_w     = tag1_data_out_m_w[CACHE_TAG_VALID_BIT];
 wire                           tag1_dirty_m_w     = tag1_data_out_m_w[CACHE_TAG_DIRTY_BIT];
-wire [CACHE_TAG_ADDR_BITS-1:0] tag1_addr_bits_m_w = tag1_data_out_m_w[`CACHE_TAG_ADDR_RNG];
+wire [CACHE_TAG_ADDR_BITS-1:0] tag1_addr_bits_m_w = tag1_data_out_m_w[`CACHE_TAG_ADDR_RNG_D];
 
 // Tag hit?
 assign                           tag1_hit_m_w = tag1_valid_m_w ? (tag1_addr_bits_m_w == req_addr_tag_cmp_m_w) : 1'b0;
@@ -476,11 +580,42 @@ assign tag_dirty_any_m_w = 1'b0
                    | (tag0_valid_m_w & tag0_dirty_m_w)
                    | (tag1_valid_m_w & tag1_dirty_m_w)
                     ;
+*/
+/////////////////////////////////////////////////////////////////////////////////////////
 
+// victim 관련 코드
 localparam EVICT_ADDR_W = 32 - DCACHE_LINE_SIZE_W;
 reg        evict_way_r;
+reg        evict_req_r;
 reg [31:0] evict_data_r;
 reg [EVICT_ADDR_W-1:0] evict_addr_r;
+
+wire [EVICT_ADDR_W-1:0] evict_addr_w;
+wire [31:0] evict_data_w;
+
+integer j;
+always @ * begin
+    evict_req_r = 1'b0;
+    evict_addr_r = '0;
+    evict_data_r = '0;
+
+    for (j=0; j<DCACHE_NUM_WAYS; j=j+1) begin
+        if (replace_way_q == j[log2way-1:0]) begin
+            evict_req_r = tag_valid_m[j] & tag_dirty_m[j];
+
+            evict_addr_r = flushing_q ?
+                            { tag_out_m[j][`CACHE_TAG_ADDR_RNG_D], flush_addr_q} :
+                            { tag_out_m[j][`CACHE_TAG_ADDR_RNG_D], mem_addr_m_q[`DCACHE_TAG_REQ_RNG]};
+            evict_data_r = data_out_m[j];
+        end
+    end
+end
+
+assign evict_way_w = (flushing_q || !tag_hit_any_m_w) & evict_req_r;
+assign evict_addr_w = evict_addr_r;
+assign evict_data_w = evict_data_r;
+
+/*
 always @ *
 begin
     evict_way_r  = 1'b0;
@@ -508,6 +643,7 @@ end
 assign                  evict_way_w  = (flushing_q || !tag_hit_any_m_w) && evict_way_r;
 wire [EVICT_ADDR_W-1:0] evict_addr_w = evict_addr_r;
 wire [31:0]             evict_data_w = evict_data_r;
+*/
 
 // (3) REQUIRES MODIFICATION: ENDS HERE
 //===============================================================
@@ -570,7 +706,54 @@ end
 
 // (4) REQUIRES MODIFICATION: STARTS HERE
 //===============================================================
+reg [3:0] data_write_m_r [0:DCACHE_NUM_WAYS-1];
 
+wire [31:0] data_in_w = (state_q == STATE_REFILL) ? pmem_read_data_w : mem_data_m_q;
+
+integer k;
+always @ * begin
+    for (k=0; k<DCACHE_NUM_WAYS;k=k+1)
+        data_write_m_r[k] = 4'b0000;
+
+    for (k=0; k<DCACHE_NUM_WAYS; k=k+1) begin
+        if (state_q == STATE_REFILL) begin
+            if (pmem_ack_w && replace_way_q == k[log2way-1:0])
+                data_write_m_r[k] = 4'b1111; 
+        end
+        else if (state_q == STATE_WRITE || state_q == STATE_LOOKUP) begin
+            data_write_m_r[k] = mem_wr_m_q & {4{tag_hit_m[k]}};
+        end
+    end
+end
+
+genvar l;
+generate
+    for (l=0; l<DCACHE_NUM_WAYS;l=l+1) begin
+        dcache_core_data_ram 
+        u_data 
+        (
+            .clk0_i(clk_i),
+            .rst0_i(rst_i),
+            .clk1_i(clk_i),
+            .rst1_i(rst_i),
+
+            // Read
+            .addr0_i({2'b00, data_addr_x_r}),
+            .data0_i(32'b0),
+            .wr0_i(4'b0),
+            .data0_o(data_out_m[l]),
+
+            // Write
+            .addr1_i({2'b00, data_addr_m_r}),
+            .data1_i(data_in_w),
+            .wr1_i(data_write_m_r[l]),
+            .data1_o()
+        );
+    end
+endgenerate
+
+
+/*
 // Data RAM write enable (way 0)
 reg [3:0] data0_write_m_r;
 always @ *
@@ -643,7 +826,7 @@ u_data1
   .wr1_i(data1_write_m_r),
   .data1_o()
 );
-
+*/
 // (4) REQUIRES MODIFICATION: ENDS HERE
 //===============================================================
 
@@ -686,6 +869,31 @@ else if (flush_addr_q == {(DCACHE_TAG_REQ_LINE_W){1'b1}})
 //----------------------------------------------------------------- 
 // Using random replacement policy - this way we cycle through the ways
 // when needing to replace a line.
+integer m;
+
+always @ (posedge clk_i or posedge rst_i) begin
+    if (rst_i)
+        replace_way_q <= {log2way{1'b0}};
+    else if (state_q == STATE_WRITE || state_q == STATE_READ)
+        replace_way_q <= replace_way_q + 1;
+    else if (flushing_q && tag_dirty_any_m_w && !evict_way_w && state_q != STATE_FLUSH_ADDR)
+        replace_way_q <= replace_way_q + 1;
+    else if (state_q == STATE_EVICT_WAIT && next_state_r == STATE_FLUSH_ADDR)
+        replace_way_q <= {log2way{1'b0}};
+    else if (state_q == STATE_FLUSH && next_state_r == STATE_LOOKUP)
+        replace_way_q <= {log2way{1'b0}};
+    else if (state_q == STATE_LOOKUP && next_state_r == STATE_FLUSH_ADDR)
+        replace_way_q <= {log2way{1'b0}};
+    else if (state_q == STATE_WRITEBACK)
+    begin
+        for (m=0; m < DCACHE_NUM_WAYS; m=m+1) begin
+            if (tag_hit_m[m])
+                replace_way_q <= m[log2way-1:0];
+        end
+    end
+end
+
+/*
 always @ (posedge clk_i or posedge rst_i)
 if (rst_i)
     replace_way_q <= 0;
@@ -706,20 +914,22 @@ begin
     tag1_hit_m_w: replace_way_q <= 1;
     endcase
 end
+*/
 
 //-----------------------------------------------------------------
 // Output Result
 //-----------------------------------------------------------------
 // Data output mux
 reg [31:0] data_r;
+integer n;
+
 always @ *
 begin
-    data_r = data0_data_out_m_w;
-
-    case (1'b1)
-    tag0_hit_m_w: data_r = data0_data_out_m_w;
-    tag1_hit_m_w: data_r = data1_data_out_m_w;
-    endcase
+    data_r = {32{1'b0}};
+    for (n=0; n < DCACHE_NUM_WAYS; n=n+1) begin
+        if (tag_hit_m[n]) 
+            data_r = data_out_m[n];
+    end
 end
 
 assign mem_data_rd_o  = data_r;

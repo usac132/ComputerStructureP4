@@ -349,17 +349,6 @@ end
 // For Project 4
 // (3) REQUIRES MODIFICATION: STARTS HERE
 //===============================================================
-// 4-way에서 새로 쓰는 hit 신호를 미리 선언해 lint 경고 제거
-wire tag2_hit_m_w;
-wire tag3_hit_m_w;
-
-wire                                      evict_way_w;
-wire [CACHE_TAG_ADDR_BITS+DCACHE_TAG_REQ_LINE_W-1:0] evict_addr_w; // 27-bit
-wire [31:0]                               evict_data_w;
-
-reg                                      evict_way_r;
-reg [CACHE_TAG_ADDR_BITS+DCACHE_TAG_REQ_LINE_W-1:0] evict_addr_r;
-reg [31:0]                               evict_data_r;
 
 // Tag RAM write enable (way 0)
 reg tag0_write_m_r;
@@ -578,8 +567,7 @@ always @* begin
     endcase
 end
 assign evict_way_w = (flushing_q || !tag_hit_any_m_w) && evict_way_r;
-assign evict_addr_w = evict_addr_r;
-assign evict_data_w = evict_data_r;
+
 
 
 /*

@@ -907,6 +907,8 @@ begin
     case (1'b1)
     tag0_hit_m_w: data_r = data0_data_out_m_w;
     tag1_hit_m_w: data_r = data1_data_out_m_w;
+    tag2_hit_m_w: data_r = data2_data_out_m_w;
+    tag3_hit_m_w: data_r = data3_data_out_m_w;
     endcase
 end
 

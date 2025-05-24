@@ -92,11 +92,11 @@ module dcache_core
 //===============================================================
 
 // Number of ways
-localparam DCACHE_NUM_WAYS           = 4;                   //not actually used; dead parameter
+localparam DCACHE_NUM_WAYS           = 1;                   //not actually used; dead parameter
 
 // Number of cache lines
-localparam DCACHE_NUM_LINES          = 256;
-localparam DCACHE_LINE_ADDR_W        = 8;
+localparam DCACHE_NUM_LINES          = 512;
+localparam DCACHE_LINE_ADDR_W        = 9;
 
 // Offset fields (Block + Word)
 // or line size (e.g. 32-bytes)
@@ -109,15 +109,15 @@ localparam DCACHE_LINE_WORDS         = 8;
 // Index fields
 //============================================================================================
 localparam DCACHE_TAG_REQ_LINE_L     = 5;  // DCACHE_LINE_SIZE_W
-localparam DCACHE_TAG_REQ_LINE_H     = 12; // DCACHE_LINE_ADDR_W+DCACHE_LINE_SIZE_W-1
-localparam DCACHE_TAG_REQ_LINE_W     = 8;  // DCACHE_LINE_ADDR_W
+localparam DCACHE_TAG_REQ_LINE_H     = 13; // DCACHE_LINE_ADDR_W+DCACHE_LINE_SIZE_W-1
+localparam DCACHE_TAG_REQ_LINE_W     = 9;  // DCACHE_LINE_ADDR_W
 `define DCACHE_TAG_REQ_RNG          DCACHE_TAG_REQ_LINE_H:DCACHE_TAG_REQ_LINE_L
 //============================================================================================
 
 // Tag fields
 //============================================================================================
-`define CACHE_TAG_ADDR_RNG          18:0
-localparam CACHE_TAG_ADDR_BITS       = 19;
+`define CACHE_TAG_ADDR_RNG_          17:0
+localparam CACHE_TAG_ADDR_BITS       = 18;
 localparam CACHE_TAG_DIRTY_BIT       = CACHE_TAG_ADDR_BITS + 0;
 localparam CACHE_TAG_VALID_BIT       = CACHE_TAG_ADDR_BITS + 1;
 localparam CACHE_TAG_DATA_W          = CACHE_TAG_ADDR_BITS + 2;
@@ -126,7 +126,7 @@ localparam CACHE_TAG_DATA_W          = CACHE_TAG_ADDR_BITS + 2;
 localparam DCACHE_TAG_CMP_ADDR_L     = DCACHE_TAG_REQ_LINE_H + 1;
 localparam DCACHE_TAG_CMP_ADDR_H     = 32-1;
 localparam DCACHE_TAG_CMP_ADDR_W     = DCACHE_TAG_CMP_ADDR_H - DCACHE_TAG_CMP_ADDR_L + 1;
-`define   DCACHE_TAG_CMP_ADDR_RNG   31:13
+`define   DCACHE_TAG_CMP_ADDR_RNG   31:14
 //============================================================================================
 
 // (1) REQUIRES MODIFICATION: ENDS HERE
@@ -253,7 +253,7 @@ assign mem_resp_tag_o = mem_tag_m_q;
 // For Project 4
 // (2) REQUIRES MODIFICATION: STARTS HERE
 //===============================================================
-reg [1:0]  replace_way_q;
+wire replace_way_q = 1'b0;
 // (2) REQUIRES MODIFICATION: ENDS HERE
 //===============================================================
 
@@ -320,28 +320,28 @@ begin
     begin
         tag_data_in_m_r[CACHE_TAG_VALID_BIT] = 1'b1;
         tag_data_in_m_r[CACHE_TAG_DIRTY_BIT] = 1'b0;
-        tag_data_in_m_r[`CACHE_TAG_ADDR_RNG] = mem_addr_m_q[`DCACHE_TAG_CMP_ADDR_RNG];
+        tag_data_in_m_r[`CACHE_TAG_ADDR_RNG_] = mem_addr_m_q[`DCACHE_TAG_CMP_ADDR_RNG];
     end
     // Invalidate - mark entry (if matching line) not valid (even if dirty...)
     else if (state_q == STATE_INVALIDATE)
     begin
         tag_data_in_m_r[CACHE_TAG_VALID_BIT] = 1'b0;
         tag_data_in_m_r[CACHE_TAG_DIRTY_BIT] = 1'b0;
-        tag_data_in_m_r[`CACHE_TAG_ADDR_RNG] = mem_addr_m_q[`DCACHE_TAG_CMP_ADDR_RNG];
+        tag_data_in_m_r[`CACHE_TAG_ADDR_RNG_] = mem_addr_m_q[`DCACHE_TAG_CMP_ADDR_RNG];
     end
     // Evict completion
     else if (state_q == STATE_EVICT_WAIT)
     begin
         tag_data_in_m_r[CACHE_TAG_VALID_BIT] = 1'b1;
         tag_data_in_m_r[CACHE_TAG_DIRTY_BIT] = 1'b0;
-        tag_data_in_m_r[`CACHE_TAG_ADDR_RNG] = mem_addr_m_q[`DCACHE_TAG_CMP_ADDR_RNG];
+        tag_data_in_m_r[`CACHE_TAG_ADDR_RNG_] = mem_addr_m_q[`DCACHE_TAG_CMP_ADDR_RNG];
     end
     // Write - mark entry as dirty
     else if (state_q == STATE_WRITE || (state_q == STATE_LOOKUP && (|mem_wr_m_q)))
     begin
         tag_data_in_m_r[CACHE_TAG_VALID_BIT] = 1'b1;
         tag_data_in_m_r[CACHE_TAG_DIRTY_BIT] = 1'b1;
-        tag_data_in_m_r[`CACHE_TAG_ADDR_RNG] = mem_addr_m_q[`DCACHE_TAG_CMP_ADDR_RNG];
+        tag_data_in_m_r[`CACHE_TAG_ADDR_RNG_] = mem_addr_m_q[`DCACHE_TAG_CMP_ADDR_RNG];
     end
 end
 
@@ -349,17 +349,6 @@ end
 // For Project 4
 // (3) REQUIRES MODIFICATION: STARTS HERE
 //===============================================================
-// 4-way에서 새로 쓰는 hit 신호를 미리 선언해 lint 경고 제거
-wire tag2_hit_m_w;
-wire tag3_hit_m_w;
-
-wire                                      evict_way_w;
-wire [CACHE_TAG_ADDR_BITS+DCACHE_TAG_REQ_LINE_W-1:0] evict_addr_w; // 27-bit
-wire [31:0]                               evict_data_w;
-
-reg                                      evict_way_r;
-reg [CACHE_TAG_ADDR_BITS+DCACHE_TAG_REQ_LINE_W-1:0] evict_addr_r;
-reg [31:0]                               evict_data_r;
 
 // Tag RAM write enable (way 0)
 reg tag0_write_m_r;
@@ -412,224 +401,32 @@ u_tag0
 
 wire                           tag0_valid_m_w     = tag0_data_out_m_w[CACHE_TAG_VALID_BIT];
 wire                           tag0_dirty_m_w     = tag0_data_out_m_w[CACHE_TAG_DIRTY_BIT];
-wire [CACHE_TAG_ADDR_BITS-1:0] tag0_addr_bits_m_w = tag0_data_out_m_w[`CACHE_TAG_ADDR_RNG];
+wire [CACHE_TAG_ADDR_BITS-1:0] tag0_addr_bits_m_w = tag0_data_out_m_w[`CACHE_TAG_ADDR_RNG_];
 
 // Tag hit?
 assign                           tag0_hit_m_w = tag0_valid_m_w ? (tag0_addr_bits_m_w == req_addr_tag_cmp_m_w) : 1'b0;
 
-// Tag RAM write enable (way 1)
-reg tag1_write_m_r;
-always @ *
-begin
-    tag1_write_m_r = 1'b0;
+assign tag_hit_any_m_w       = tag0_hit_m_w;
+assign tag_hit_and_dirty_m_w = tag0_hit_m_w & tag0_dirty_m_w;
+assign tag_dirty_any_m_w     = tag0_valid_m_w & tag0_dirty_m_w;
 
-    // Cache flush (reset)
-    if (state_q == STATE_RESET)
-        tag1_write_m_r = 1'b1;
-    // Cache flush
-    else if (state_q == STATE_FLUSH)
-        tag1_write_m_r = !tag_dirty_any_m_w;
-    // Write - hit, mark as dirty
-    else if (state_q == STATE_LOOKUP && (|mem_wr_m_q))
-        tag1_write_m_r = tag1_hit_m_w;
-    // Write - write after refill
-    else if (state_q == STATE_WRITE)
-        tag1_write_m_r = (replace_way_q == 1);
-    // Write - mark entry as dirty
-    else if (state_q == STATE_EVICT_WAIT && pmem_ack_w)
-        tag1_write_m_r = (replace_way_q == 1);
-    // Line refill
-    else if (state_q == STATE_REFILL)
-        tag1_write_m_r = pmem_ack_w && pmem_last_w && (replace_way_q == 1);
-    // Invalidate - line matches address - invalidate
-    else if (state_q == STATE_INVALIDATE)
-        tag1_write_m_r = tag1_hit_m_w;
-end
 
-wire [CACHE_TAG_DATA_W-1:0] tag1_data_out_m_w;
-
-dcache_core_tag_ram
-u_tag1
-(
-  .clk0_i(clk_i),
-  .rst0_i(rst_i),
-  .clk1_i(clk_i),
-  .rst1_i(rst_i),
-
-  // Read
-  .addr0_i(tag_addr_x_r),
-  .data0_o(tag1_data_out_m_w),
-
-  // Write
-  .addr1_i(tag_addr_m_r),
-  .data1_i(tag_data_in_m_r),
-  .wr1_i(tag1_write_m_r)
-);
-
-wire                           tag1_valid_m_w     = tag1_data_out_m_w[CACHE_TAG_VALID_BIT];
-wire                           tag1_dirty_m_w     = tag1_data_out_m_w[CACHE_TAG_DIRTY_BIT];
-wire [CACHE_TAG_ADDR_BITS-1:0] tag1_addr_bits_m_w = tag1_data_out_m_w[`CACHE_TAG_ADDR_RNG];
-
-// Tag hit?
-assign                           tag1_hit_m_w = tag1_valid_m_w ? (tag1_addr_bits_m_w == req_addr_tag_cmp_m_w) : 1'b0;
-
-// Tag RAM write enable (way 2)
-reg tag2_write_m_r;
+localparam EVICT_ADDR_W = 32 - DCACHE_LINE_SIZE_W;
+reg evict_way_r;  
+reg [CACHE_TAG_ADDR_BITS+DCACHE_TAG_REQ_LINE_W-1:0] evict_addr_r;
+reg [31:0] evict_data_r;
+wire [CACHE_TAG_ADDR_BITS+DCACHE_TAG_REQ_LINE_W-1:0] evict_addr_w;
+wire [31:0] evict_data_w;
 always @* begin
-    tag2_write_m_r = 1'b0;
-    if (state_q == STATE_RESET)                       tag2_write_m_r = 1'b1;
-    else if (state_q == STATE_FLUSH)                  tag2_write_m_r = !tag_dirty_any_m_w;
-    else if (state_q == STATE_LOOKUP && (|mem_wr_m_q))tag2_write_m_r = tag2_hit_m_w;
-    else if (state_q == STATE_WRITE)                  tag2_write_m_r = (replace_way_q == 2);
-    else if (state_q == STATE_EVICT_WAIT && pmem_ack_w)tag2_write_m_r = (replace_way_q == 2);
-    else if (state_q == STATE_REFILL)
-        tag2_write_m_r = pmem_ack_w && pmem_last_w && (replace_way_q == 2);
-    else if (state_q == STATE_INVALIDATE)             tag2_write_m_r = tag2_hit_m_w;
-end
-
-wire [CACHE_TAG_DATA_W-1:0] tag2_data_out_m_w;
-dcache_core_tag_ram u_tag2 (
-    .clk0_i(clk_i), .rst0_i(rst_i),
-    .clk1_i(clk_i), .rst1_i(rst_i),
-    .addr0_i(tag_addr_x_r), .data0_o(tag2_data_out_m_w),
-    .addr1_i(tag_addr_m_r), .data1_i(tag_data_in_m_r), .wr1_i(tag2_write_m_r)
-);
-wire tag2_valid_m_w     = tag2_data_out_m_w[CACHE_TAG_VALID_BIT];
-wire tag2_dirty_m_w     = tag2_data_out_m_w[CACHE_TAG_DIRTY_BIT];
-wire [CACHE_TAG_ADDR_BITS-1:0] tag2_addr_bits_m_w = tag2_data_out_m_w[`CACHE_TAG_ADDR_RNG];
-assign tag2_hit_m_w = tag2_valid_m_w ? (tag2_addr_bits_m_w == req_addr_tag_cmp_m_w) : 1'b0;
-
-// Tag RAM write enable (way 3)
-reg tag3_write_m_r;
-always @* begin
-    tag3_write_m_r = 1'b0;
-    if (state_q == STATE_RESET)                       tag3_write_m_r = 1'b1;
-    else if (state_q == STATE_FLUSH)                  tag3_write_m_r = !tag_dirty_any_m_w;
-    else if (state_q == STATE_LOOKUP && (|mem_wr_m_q))tag3_write_m_r = tag3_hit_m_w;
-    else if (state_q == STATE_WRITE)                  tag3_write_m_r = (replace_way_q == 3);
-    else if (state_q == STATE_EVICT_WAIT && pmem_ack_w)tag3_write_m_r = (replace_way_q == 3);
-    else if (state_q == STATE_REFILL)
-        tag3_write_m_r = pmem_ack_w && pmem_last_w && (replace_way_q == 3);
-    else if (state_q == STATE_INVALIDATE)             tag3_write_m_r = tag3_hit_m_w;
-end
-
-wire [CACHE_TAG_DATA_W-1:0] tag3_data_out_m_w;
-dcache_core_tag_ram u_tag3 (
-    .clk0_i(clk_i), .rst0_i(rst_i),
-    .clk1_i(clk_i), .rst1_i(rst_i),
-    .addr0_i(tag_addr_x_r), .data0_o(tag3_data_out_m_w),
-    .addr1_i(tag_addr_m_r), .data1_i(tag_data_in_m_r), .wr1_i(tag3_write_m_r)
-);
-wire tag3_valid_m_w     = tag3_data_out_m_w[CACHE_TAG_VALID_BIT];
-wire tag3_dirty_m_w     = tag3_data_out_m_w[CACHE_TAG_DIRTY_BIT];
-wire [CACHE_TAG_ADDR_BITS-1:0] tag3_addr_bits_m_w = tag3_data_out_m_w[`CACHE_TAG_ADDR_RNG];
-assign tag3_hit_m_w = tag3_valid_m_w ? (tag3_addr_bits_m_w == req_addr_tag_cmp_m_w) : 1'b0;
-
-assign tag_hit_any_m_w = 1'b0
-                       | tag0_hit_m_w
-                       | tag1_hit_m_w
-                       | tag2_hit_m_w
-                       | tag3_hit_m_w ;
-
-assign tag_hit_and_dirty_m_w = 1'b0
-                       | (tag0_hit_m_w & tag0_dirty_m_w)
-                       | (tag1_hit_m_w & tag1_dirty_m_w)
-                       | (tag2_hit_m_w & tag2_dirty_m_w)
-                       | (tag3_hit_m_w & tag3_dirty_m_w);
-
-assign tag_dirty_any_m_w = 1'b0
-                       | (tag0_valid_m_w & tag0_dirty_m_w)
-                       | (tag1_valid_m_w & tag1_dirty_m_w)
-                       | (tag2_valid_m_w & tag2_dirty_m_w)
-                       | (tag3_valid_m_w & tag3_dirty_m_w);
-
-// ---------- Evict 선택 ----------
-always @* begin
-    evict_way_r  = 1'b0;
+    evict_way_r  = tag0_valid_m_w & tag0_dirty_m_w;
     evict_addr_r = flushing_q ? {tag0_addr_bits_m_w, flush_addr_q} :
                                 {tag0_addr_bits_m_w, mem_addr_m_q[`DCACHE_TAG_REQ_RNG]};
     evict_data_r = data0_data_out_m_w;
-
-    case (replace_way_q)
-        2'd0: begin
-            evict_way_r  = tag0_valid_m_w && tag0_dirty_m_w;
-            evict_addr_r = flushing_q ? {tag0_addr_bits_m_w, flush_addr_q} :
-                                        {tag0_addr_bits_m_w, mem_addr_m_q[`DCACHE_TAG_REQ_RNG]};
-            evict_data_r = data0_data_out_m_w;
-        end
-        2'd1: begin
-            evict_way_r  = tag1_valid_m_w && tag1_dirty_m_w;
-            evict_addr_r = flushing_q ? {tag1_addr_bits_m_w, flush_addr_q} :
-                                        {tag1_addr_bits_m_w, mem_addr_m_q[`DCACHE_TAG_REQ_RNG]};
-            evict_data_r = data1_data_out_m_w;
-        end
-        2'd2: begin
-            evict_way_r  = tag2_valid_m_w && tag2_dirty_m_w;
-            evict_addr_r = flushing_q ? {tag2_addr_bits_m_w, flush_addr_q} :
-                                        {tag2_addr_bits_m_w, mem_addr_m_q[`DCACHE_TAG_REQ_RNG]};
-            evict_data_r = data2_data_out_m_w;
-        end
-        2'd3: begin
-            evict_way_r  = tag3_valid_m_w && tag3_dirty_m_w;
-            evict_addr_r = flushing_q ? {tag3_addr_bits_m_w, flush_addr_q} :
-                                        {tag3_addr_bits_m_w, mem_addr_m_q[`DCACHE_TAG_REQ_RNG]};
-            evict_data_r = data3_data_out_m_w;
-        end
-    endcase
 end
-assign evict_way_w = (flushing_q || !tag_hit_any_m_w) && evict_way_r;
+assign evict_way_w  = (flushing_q || !tag_hit_any_m_w) && evict_way_r;
 assign evict_addr_w = evict_addr_r;
 assign evict_data_w = evict_data_r;
 
-
-/*
-assign tag_hit_any_m_w = 1'b0
-                   | tag0_hit_m_w
-                   | tag1_hit_m_w
-                    ;
-
-assign tag_hit_and_dirty_m_w = 1'b0
-                   | (tag0_hit_m_w & tag0_dirty_m_w)
-                   | (tag1_hit_m_w & tag1_dirty_m_w)
-                    ;
-
-assign tag_dirty_any_m_w = 1'b0
-                   | (tag0_valid_m_w & tag0_dirty_m_w)
-                   | (tag1_valid_m_w & tag1_dirty_m_w)
-                    ;
-
-localparam EVICT_ADDR_W = 32 - DCACHE_LINE_SIZE_W;
-reg        evict_way_r;
-reg [31:0] evict_data_r;
-reg [EVICT_ADDR_W-1:0] evict_addr_r;
-always @ *
-begin
-    evict_way_r  = 1'b0;
-    evict_addr_r = flushing_q ? {tag0_addr_bits_m_w, flush_addr_q} :
-                                {tag0_addr_bits_m_w, mem_addr_m_q[`DCACHE_TAG_REQ_RNG]};
-    evict_data_r = data0_data_out_m_w;
-
-    case (replace_way_q)
-        1'd0:
-        begin
-            evict_way_r  = tag0_valid_m_w && tag0_dirty_m_w;
-            evict_addr_r = flushing_q ? {tag0_addr_bits_m_w, flush_addr_q} :
-                                        {tag0_addr_bits_m_w, mem_addr_m_q[`DCACHE_TAG_REQ_RNG]};
-            evict_data_r = data0_data_out_m_w;
-        end
-        1'd1:
-        begin
-            evict_way_r  = tag1_valid_m_w && tag1_dirty_m_w;
-            evict_addr_r = flushing_q ? {tag1_addr_bits_m_w, flush_addr_q} :
-                                        {tag1_addr_bits_m_w, mem_addr_m_q[`DCACHE_TAG_REQ_RNG]};
-            evict_data_r = data1_data_out_m_w;
-        end
-    endcase
-end
-assign                  evict_way_w  = (flushing_q || !tag_hit_any_m_w) && evict_way_r;
-wire [EVICT_ADDR_W-1:0] evict_addr_w = evict_addr_r;
-wire [31:0]             evict_data_w = evict_data_r;
-*/
 // (3) REQUIRES MODIFICATION: ENDS HERE
 //===============================================================
 
@@ -729,85 +526,6 @@ u_data0
 );
 
 
-// Data RAM write enable (way 1)
-reg [3:0] data1_write_m_r;
-always @ *
-begin
-    data1_write_m_r = 4'b0;
-
-    if (state_q == STATE_REFILL)
-        data1_write_m_r = (pmem_ack_w && replace_way_q == 1) ? 4'b1111 : 4'b0000;
-    else if (state_q == STATE_WRITE || state_q == STATE_LOOKUP)
-        data1_write_m_r = mem_wr_m_q & {4{tag1_hit_m_w}};
-end
-
-
-wire [31:0] data1_data_in_m_w = (state_q == STATE_REFILL) ? pmem_read_data_w : mem_data_m_q;
-
-dcache_core_data_ram
-u_data1
-(
-  .clk0_i(clk_i),
-  .rst0_i(rst_i),
-  .clk1_i(clk_i),
-  .rst1_i(rst_i),
-
-  // Read
-  .addr0_i(data_addr_x_r),
-  .data0_i(32'b0),
-  .wr0_i(4'b0),
-  .data0_o(data1_data_out_m_w),
-
-  // Write
-  .addr1_i(data_addr_m_r),
-  .data1_i(data1_data_in_m_w),
-  .wr1_i(data1_write_m_r),
-  .data1_o()
-);
-
-// Data RAM write enable (way 2)
-reg [3:0] data2_write_m_r;
-always @* begin
-    data2_write_m_r = 4'b0;
-    if (state_q == STATE_REFILL)
-        data2_write_m_r = (pmem_ack_w && replace_way_q == 2) ? 4'b1111 : 4'b0000;
-    else if (state_q == STATE_WRITE || state_q == STATE_LOOKUP)
-        data2_write_m_r = mem_wr_m_q & {4{tag2_hit_m_w}};
-end
-
-wire [31:0] data2_data_in_m_w = (state_q == STATE_REFILL) ? pmem_read_data_w : mem_data_m_q;
-wire [31:0] data2_data_out_m_w;
-
-dcache_core_data_ram u_data2 (
-    .clk0_i(clk_i), .rst0_i(rst_i),
-    .clk1_i(clk_i), .rst1_i(rst_i),
-    .addr0_i(data_addr_x_r), .data0_i(32'b0), .wr0_i(4'b0),
-    .data0_o(data2_data_out_m_w),
-    .addr1_i(data_addr_m_r), .data1_i(data2_data_in_m_w),
-    .wr1_i(data2_write_m_r), .data1_o()
-);
-
-// Data RAM write enable (way 3)
-reg [3:0] data3_write_m_r;
-always @* begin
-    data3_write_m_r = 4'b0;
-    if (state_q == STATE_REFILL)
-        data3_write_m_r = (pmem_ack_w && replace_way_q == 3) ? 4'b1111 : 4'b0000;
-    else if (state_q == STATE_WRITE || state_q == STATE_LOOKUP)
-        data3_write_m_r = mem_wr_m_q & {4{tag3_hit_m_w}};
-end
-
-wire [31:0] data3_data_in_m_w = (state_q == STATE_REFILL) ? pmem_read_data_w : mem_data_m_q;
-wire [31:0] data3_data_out_m_w;
-
-dcache_core_data_ram u_data3 (
-    .clk0_i(clk_i), .rst0_i(rst_i),
-    .clk1_i(clk_i), .rst1_i(rst_i),
-    .addr0_i(data_addr_x_r), .data0_i(32'b0), .wr0_i(4'b0),
-    .data0_o(data3_data_out_m_w),
-    .addr1_i(data_addr_m_r), .data1_i(data3_data_in_m_w),
-    .wr1_i(data3_write_m_r), .data1_o()
-);
 // (4) REQUIRES MODIFICATION: ENDS HERE
 //===============================================================
 
@@ -851,69 +569,9 @@ else if (flush_addr_q == {(DCACHE_TAG_REQ_LINE_W){1'b1}})
 // Using random replacement policy - this way we cycle through the ways
 // when needing to replace a line.
 
-always @ (posedge clk_i or posedge rst_i)
-if (rst_i)
-    replace_way_q <= 2'd0;                 // 4-way라 2-bit
-else if (state_q == STATE_WRITE || state_q == STATE_READ)
-    replace_way_q <= replace_way_q + 2'd1; // 0->1->2->3->0 순환
-else if (flushing_q && tag_dirty_any_m_w && !evict_way_w
-         && state_q != STATE_FLUSH_ADDR)
-    replace_way_q <= replace_way_q + 2'd1;
-else if ((state_q == STATE_EVICT_WAIT && next_state_r == STATE_FLUSH_ADDR) ||
-         (state_q == STATE_FLUSH      && next_state_r == STATE_LOOKUP)     ||
-         (state_q == STATE_LOOKUP     && next_state_r == STATE_FLUSH_ADDR))
-    replace_way_q <= 2'd0;
-else if (state_q == STATE_WRITEBACK)
-begin
-    case (1'b1)
-        tag0_hit_m_w: replace_way_q <= 2'd0;
-        tag1_hit_m_w: replace_way_q <= 2'd1;
-        tag2_hit_m_w: replace_way_q <= 2'd2;   // 〈추가〉
-        tag3_hit_m_w: replace_way_q <= 2'd3;   // 〈추가〉
-    endcase
-end
+assign mem_data_rd_o  = data0_data_out_m_w;
 
-/*
-always @ (posedge clk_i or posedge rst_i)
-if (rst_i)
-    replace_way_q <= 2'd0;
-else if (state_q == STATE_WRITE || state_q == STATE_READ)
-    replace_way_q <= replace_way_q + 1;
-else if (flushing_q && tag_dirty_any_m_w && !evict_way_w && state_q != STATE_FLUSH_ADDR)
-    replace_way_q <= replace_way_q + 1;
-else if (state_q == STATE_EVICT_WAIT && next_state_r == STATE_FLUSH_ADDR)
-    replace_way_q <= 0;
-else if (state_q == STATE_FLUSH && next_state_r == STATE_LOOKUP)
-    replace_way_q <= 0;
-else if (state_q == STATE_LOOKUP && next_state_r == STATE_FLUSH_ADDR)
-    replace_way_q <= 0;
-else if (state_q == STATE_WRITEBACK)
-begin
-    case (1'b1)
-    tag0_hit_m_w: replace_way_q <= 0;
-    tag1_hit_m_w: replace_way_q <= 1;
-    endcase
-end
-*/
-//-----------------------------------------------------------------
-// Output Result
-//-----------------------------------------------------------------
-// Data output mux
-reg [31:0] data_r;
-always @ *
-begin
-    data_r = data0_data_out_m_w;
-
-    case (1'b1)
-    tag0_hit_m_w: data_r = data0_data_out_m_w;
-    tag1_hit_m_w: data_r = data1_data_out_m_w;
-    tag2_hit_m_w: data_r = data2_data_out_m_w;
-    tag3_hit_m_w: data_r = data3_data_out_m_w;
-    endcase
-end
-
-assign mem_data_rd_o  = data_r;
-
+wire [31:0] data_r = data0_data_out_m_w;
 // (5) REQUIRES MODIFICATION: ENDS HERE
 //===============================================================
 
